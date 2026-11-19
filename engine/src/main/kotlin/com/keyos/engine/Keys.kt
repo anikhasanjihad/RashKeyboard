@@ -10,8 +10,13 @@ data class KeyDef(
     val label: String = "",
     val shifted: String = label,
     val weight: Float = 1f,
+    /** Characters offered on long-press (Gboard-style popup). */
+    val alts: List<String> = emptyList(),
 ) {
     fun textFor(shift: ShiftState): String = if (shift == ShiftState.OFF) label else shifted
+
+    fun altsFor(shift: ShiftState): List<String> =
+        if (shift == ShiftState.OFF) alts else alts.map { if (it == "ß") "ẞ" else it.uppercase() }
 }
 
 /** A row of keys. [sidePadding] is empty space on each side, in key-width units. */

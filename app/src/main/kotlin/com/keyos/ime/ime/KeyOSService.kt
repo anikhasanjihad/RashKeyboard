@@ -12,6 +12,7 @@ import com.keyos.engine.KeyType
 import com.keyos.engine.KeyboardLayout
 import com.keyos.engine.Layouts
 import com.keyos.engine.ShiftState
+import com.keyos.engine.WordPredictor
 import com.keyos.ime.ui.KeyboardView
 
 class KeyOSService : InputMethodService(), KeyboardView.Listener {
@@ -23,9 +24,14 @@ class KeyOSService : InputMethodService(), KeyboardView.Listener {
     private var mode = Mode.LETTERS
     private var shift = ShiftState.OFF
     private var passwordField = false
+    private var suggestionsEnabled = true
     private var lastShiftTap = 0L
     private var lastSpaceTime = 0L
-    private val phoneticBuffer = StringBuilder()
+
+    /** Raw letters of the word being typed (shown as composing text). */
+    private val composing = StringBuilder()
+    private var currentSuggestions: List<String> = emptyList()
+    private lateinit var predictor: WordPredictor
 
     private val letters: KeyboardLayout
         get() = if (passwordField) Layouts.english else Layouts.all[langIndex]
@@ -36,6 +42,17 @@ class KeyOSService : InputMethodService(), KeyboardView.Listener {
             Mode.SYMBOLS -> Layouts.symbols
             Mode.EXTRAS -> Layouts.bengaliExtras
         }
+
+    override fun onCreate() {
+        super.onCreate()
+        predictor = WordPredictor()
+        WordStore.load(this, predictor)
+    }
+
+    override fun onDestroy() {
+        WordStore.save(this, predictor)
+        super.onDestroy()
+    }
 
     override fun onCreateInputView(): View =
         KeyboardView(this).also {
@@ -48,7 +65,8 @@ class KeyOSService : InputMethodService(), KeyboardView.Listener {
 
     override fun onStartInputView(info: EditorInfo, restarting: Boolean) {
         super.onStartInputView(info, restarting)
-        phoneticBuffer.clear()
+        composing.clear()
+        showSuggestions(emptyList())
         val cls = info.inputType and InputType.TYPE_MASK_CLASS
         val variation = info.inputType and InputType.TYPE_MASK_VARIATION
         passwordField = when (cls) {
@@ -59,6 +77,14 @@ class KeyOSService : InputMethodService(), KeyboardView.Listener {
             InputType.TYPE_CLASS_NUMBER -> variation == InputType.TYPE_NUMBER_VARIATION_PASSWORD
             else -> false
         }
+        val noSuggestionsFlag = cls == InputType.TYPE_CLASS_TEXT &&
+            (info.inputType and InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS) != 0
+        val emailOrUri = cls == InputType.TYPE_CLASS_TEXT && (
+            variation == InputType.TYPE_TEXT_VARIATION_EMAIL_ADDRESS ||
+                variation == InputType.TYPE_TEXT_VARIATION_WEB_EMAIL_ADDRESS ||
+                variation == InputType.TYPE_TEXT_VARIATION_URI
+            )
+        suggestionsEnabled = !passwordField && !noSuggestionsFlag && !emailOrUri
         mode = if (cls == InputType.TYPE_CLASS_NUMBER || cls == InputType.TYPE_CLASS_PHONE ||
             cls == InputType.TYPE_CLASS_DATETIME
         ) Mode.SYMBOLS else Mode.LETTERS
@@ -69,6 +95,7 @@ class KeyOSService : InputMethodService(), KeyboardView.Listener {
 
     override fun onFinishInput() {
         flushComposing()
+        WordStore.save(this, predictor)
         super.onFinishInput()
     }
 
@@ -77,14 +104,15 @@ class KeyOSService : InputMethodService(), KeyboardView.Listener {
         candidatesStart: Int, candidatesEnd: Int,
     ) {
         super.onUpdateSelection(oldSelStart, oldSelEnd, newSelStart, newSelEnd, candidatesStart, candidatesEnd)
-        // The user moved the cursor away from the composing text: drop our buffer.
-        if (phoneticBuffer.isNotEmpty() && (newSelStart != candidatesEnd || newSelEnd != candidatesEnd)) {
-            phoneticBuffer.clear()
+        // Cursor left the word we are composing: forget it (do not learn it).
+        if (composing.isNotEmpty() && (newSelStart != candidatesEnd || newSelEnd != candidatesEnd)) {
+            composing.clear()
             currentInputConnection?.finishComposingText()
+            showSuggestions(emptyList())
         }
     }
 
-    // ---- key handling -------------------------------------------------------------------
+    // ---- KeyboardView.Listener ----------------------------------------------------------
 
     override fun onKey(key: KeyDef) {
         when (key.type) {
@@ -95,7 +123,11 @@ class KeyOSService : InputMethodService(), KeyboardView.Listener {
             KeyType.SHIFT -> onShift()
             KeyType.SYMBOLS -> { flushComposing(); mode = Mode.SYMBOLS; refresh() }
             KeyType.ALPHA -> { mode = Mode.LETTERS; refresh() }
-            KeyType.EXTRAS -> { flushComposing(); mode = if (mode == Mode.EXTRAS) Mode.LETTERS else Mode.EXTRAS; refresh() }
+            KeyType.EXTRAS -> {
+                flushComposing()
+                mode = if (mode == Mode.EXTRAS) Mode.LETTERS else Mode.EXTRAS
+                refresh()
+            }
             KeyType.LANGUAGE -> {
                 flushComposing()
                 langIndex = (langIndex + 1) % Layouts.all.size
@@ -107,16 +139,55 @@ class KeyOSService : InputMethodService(), KeyboardView.Listener {
         }
     }
 
+    /** A character picked from the long-press popup. */
+    override fun onText(text: String) {
+        val ic = currentInputConnection ?: return
+        flushComposing()
+        ic.commitText(text, 1)
+        afterTyped()
+    }
+
+    override fun onCursorMove(direction: Int) {
+        flushComposing()
+        sendDownUpKeyEvents(if (direction < 0) KeyEvent.KEYCODE_DPAD_LEFT else KeyEvent.KEYCODE_DPAD_RIGHT)
+    }
+
+    override fun onSuggestion(index: Int) {
+        val ic = currentInputConnection ?: return
+        val word = currentSuggestions.getOrNull(index) ?: return
+        ic.commitText("$word ", 1) // replaces the composing word
+        if (!letters.phonetic) predictor.learn(word)
+        composing.clear()
+        lastSpaceTime = 0L
+        showSuggestions(emptyList())
+        updateAutoCap()
+        refresh()
+    }
+
+    // ---- typing -------------------------------------------------------------------------
+
+    private fun usesComposing(): Boolean =
+        mode == Mode.LETTERS && !passwordField &&
+            (letters.phonetic || (letters.id == "en" && suggestionsEnabled))
+
+    private fun display(): String =
+        if (letters.phonetic) BanglaPhonetic.transliterate(composing.toString()) else composing.toString()
+
     private fun onChar(text: String) {
         val ic = currentInputConnection ?: return
-        val isLatin = text.length == 1 && (text[0] in 'a'..'z' || text[0] in 'A'..'Z')
-        if (mode == Mode.LETTERS && letters.phonetic && isLatin) {
-            phoneticBuffer.append(text)
-            ic.setComposingText(BanglaPhonetic.transliterate(phoneticBuffer.toString()), 1)
+        val isLatinLetter = text.length == 1 && (text[0] in 'a'..'z' || text[0] in 'A'..'Z')
+        if (usesComposing() && isLatinLetter) {
+            composing.append(text)
+            ic.setComposingText(display(), 1)
+            if (!letters.phonetic) updateSuggestions()
         } else {
             flushComposing()
             ic.commitText(text, 1)
         }
+        afterTyped()
+    }
+
+    private fun afterTyped() {
         if (shift == ShiftState.ONCE) {
             shift = ShiftState.OFF
             refresh()
@@ -150,10 +221,15 @@ class KeyOSService : InputMethodService(), KeyboardView.Listener {
 
     private fun onBackspace() {
         val ic = currentInputConnection ?: return
-        if (phoneticBuffer.isNotEmpty()) {
-            phoneticBuffer.deleteCharAt(phoneticBuffer.length - 1)
-            if (phoneticBuffer.isEmpty()) ic.commitText("", 1)
-            else ic.setComposingText(BanglaPhonetic.transliterate(phoneticBuffer.toString()), 1)
+        if (composing.isNotEmpty()) {
+            composing.deleteCharAt(composing.length - 1)
+            if (composing.isEmpty()) {
+                ic.commitText("", 1)
+                showSuggestions(emptyList())
+            } else {
+                ic.setComposingText(display(), 1)
+                if (!letters.phonetic) updateSuggestions()
+            }
             return
         }
         sendDownUpKeyEvents(KeyEvent.KEYCODE_DEL)
@@ -187,11 +263,23 @@ class KeyOSService : InputMethodService(), KeyboardView.Listener {
 
     // ---- helpers ------------------------------------------------------------------------
 
+    /** Ends the composing word (learning it for English) and clears suggestions. */
     private fun flushComposing() {
-        if (phoneticBuffer.isNotEmpty()) {
-            currentInputConnection?.finishComposingText()
-            phoneticBuffer.clear()
-        }
+        if (composing.isEmpty()) return
+        if (!letters.phonetic && suggestionsEnabled && !passwordField) predictor.learn(composing.toString())
+        currentInputConnection?.finishComposingText()
+        composing.clear()
+        showSuggestions(emptyList())
+    }
+
+    private fun updateSuggestions() {
+        val typed = composing.toString()
+        showSuggestions(listOf(typed) + predictor.suggest(typed, 2))
+    }
+
+    private fun showSuggestions(list: List<String>) {
+        currentSuggestions = list
+        keyboardView?.setSuggestions(list)
     }
 
     /** Capitalise automatically at sentence starts (English layout only). */

@@ -11,14 +11,34 @@ object Layouts {
     private val bnDigits = listOf("১", "২", "৩", "৪", "৫", "৬", "৭", "৮", "৯", "০")
     private val enDigits = listOf("1", "2", "3", "4", "5", "6", "7", "8", "9", "0")
 
-    private fun keys(normal: List<String>, shifted: List<String> = normal.map { it.uppercase() }) =
-        normal.zip(shifted).map { (n, s) -> KeyDef(CHAR, n, s) }
-
     private fun split(s: String) = s.map { it.toString() }
 
-    private fun plain(items: List<String>) = items.map { KeyDef(CHAR, it, it) }
+    private fun keys(
+        normal: List<String>,
+        shifted: List<String> = normal.map { it.uppercase() },
+        alts: Map<String, String> = emptyMap(),
+    ) = normal.zip(shifted).map { (n, s) -> KeyDef(CHAR, n, s, alts = alts[n]?.let { split(it) } ?: emptyList()) }
 
-    private fun digitRow(d: List<String>) = KeyRow(plain(d))
+    private fun plain(items: List<String>, alts: Map<String, String> = emptyMap()) =
+        items.map { KeyDef(CHAR, it, it, alts = alts[it]?.let { a -> split(a) } ?: emptyList()) }
+
+    private fun digitRow(d: List<String>, alts: Map<String, String> = emptyMap()) = KeyRow(plain(d, alts))
+
+    private val enAlts = mapOf(
+        "a" to "àáâäæãåā", "c" to "çćč", "e" to "èéêëēėę", "i" to "îïíīįì", "l" to "ł",
+        "n" to "ñń", "o" to "ôöòóœøōõ", "s" to "ßśš", "u" to "ûüùúū", "y" to "ÿý", "z" to "žźż",
+    )
+    private val enDigitAlts = mapOf("0" to "°ⁿ∅", "1" to "¹½⅓¼", "2" to "²⅔", "3" to "³¾", "4" to "⁴")
+    private val bnDigitAlts = mapOf(
+        "১" to "1", "২" to "2", "৩" to "3", "৪" to "4", "৫" to "5",
+        "৬" to "6", "৭" to "7", "৮" to "8", "৯" to "9", "০" to "0",
+    )
+    private val punctAlts = split("…!?:;'\"-_()")
+    private val bnPunctAlts = split("!?:;'\"-.,")
+    private val symbolAlts = mapOf(
+        "-" to "–—•", "\"" to "“”„«»", "'" to "‘’‚‹›", "?" to "¿", "!" to "¡", "%" to "‰",
+        "=" to "≠≈", "৳" to "$€£¥₹¢", "." to "…",
+    )
 
     private fun shiftBackspaceRow(middle: List<KeyDef>) = KeyRow(
         listOf(KeyDef(SHIFT, weight = 1.5f)) + middle + KeyDef(BACKSPACE, weight = 1.5f)
@@ -28,17 +48,17 @@ object Layouts {
         id = "en",
         displayName = "English",
         rows = listOf(
-            digitRow(enDigits),
-            KeyRow(keys(split("qwertyuiop"))),
-            KeyRow(keys(split("asdfghjkl")), sidePadding = 0.5f),
-            shiftBackspaceRow(keys(split("zxcvbnm"))),
+            digitRow(enDigits, enDigitAlts),
+            KeyRow(keys(split("qwertyuiop"), alts = enAlts)),
+            KeyRow(keys(split("asdfghjkl"), alts = enAlts), sidePadding = 0.5f),
+            shiftBackspaceRow(keys(split("zxcvbnm"), alts = enAlts)),
             KeyRow(
                 listOf(
                     KeyDef(SYMBOLS, weight = 1.5f),
                     KeyDef(LANGUAGE),
                     KeyDef(CHAR, ",", ","),
                     KeyDef(SPACE, "English", weight = 4f),
-                    KeyDef(CHAR, ".", "."),
+                    KeyDef(CHAR, ".", ".", alts = punctAlts),
                     KeyDef(ENTER, weight = 1.5f),
                 )
             ),
@@ -58,7 +78,7 @@ object Layouts {
         displayName = "বাংলা (বিজয়-স্টাইল)",
         sentenceEnd = "। ",
         rows = listOf(
-            digitRow(bnDigits),
+            digitRow(bnDigits, bnDigitAlts),
             KeyRow(keys(bijoyRow1, bijoyRow1S)),
             KeyRow(keys(bijoyRow2, bijoyRow2S), sidePadding = 0.5f),
             shiftBackspaceRow(keys(bijoyRow3, bijoyRow3S)),
@@ -68,7 +88,7 @@ object Layouts {
                     KeyDef(LANGUAGE),
                     KeyDef(EXTRAS),
                     KeyDef(SPACE, "বাংলা", weight = 4f),
-                    KeyDef(CHAR, "।", "।"),
+                    KeyDef(CHAR, "।", "।", alts = bnPunctAlts),
                     KeyDef(ENTER, weight = 1.5f),
                 )
             ),
@@ -81,7 +101,7 @@ object Layouts {
         sentenceEnd = "। ",
         phonetic = true,
         rows = listOf(
-            digitRow(bnDigits),
+            digitRow(bnDigits, bnDigitAlts),
             KeyRow(keys(split("qwertyuiop"))),
             KeyRow(keys(split("asdfghjkl")), sidePadding = 0.5f),
             shiftBackspaceRow(keys(split("zxcvbnm"))),
@@ -91,7 +111,7 @@ object Layouts {
                     KeyDef(LANGUAGE),
                     KeyDef(CHAR, ",", ","),
                     KeyDef(SPACE, "ফোনেটিক", weight = 4f),
-                    KeyDef(CHAR, "।", "।"),
+                    KeyDef(CHAR, "।", "।", alts = bnPunctAlts),
                     KeyDef(ENTER, weight = 1.5f),
                 )
             ),
@@ -104,8 +124,8 @@ object Layouts {
         displayName = "?123",
         rows = listOf(
             digitRow(enDigits),
-            KeyRow(plain(split("@#") + "৳" + split("_&-+()/"))),
-            KeyRow(plain(split("*\"':;!?%")) + KeyDef(BACKSPACE, weight = 2f)),
+            KeyRow(plain(split("@#") + "৳" + split("_&-+()/"), symbolAlts)),
+            KeyRow(plain(split("*\"':;!?%"), symbolAlts) + KeyDef(BACKSPACE, weight = 2f)),
             KeyRow(plain(split("[]{}<>=~|\\"))),
             KeyRow(
                 listOf(
@@ -125,7 +145,7 @@ object Layouts {
         displayName = "বাংলা অতিরিক্ত",
         sentenceEnd = "। ",
         rows = listOf(
-            digitRow(bnDigits),
+            digitRow(bnDigits, bnDigitAlts),
             KeyRow(plain(split("অআইঈউঊঋএঐও"))),
             KeyRow(plain(split("ঔৎংঃঁ্।")) + KeyDef(BACKSPACE, weight = 2f), sidePadding = 0.5f),
             KeyRow(plain(split(".,?!:;-'\"")), sidePadding = 0.5f),
@@ -134,7 +154,7 @@ object Layouts {
                     KeyDef(ALPHA, "কখ", weight = 1.5f),
                     KeyDef(CHAR, ",", ","),
                     KeyDef(SPACE, "", weight = 5f),
-                    KeyDef(CHAR, "।", "।"),
+                    KeyDef(CHAR, "।", "।", alts = bnPunctAlts),
                     KeyDef(ENTER, weight = 1.5f),
                 )
             ),

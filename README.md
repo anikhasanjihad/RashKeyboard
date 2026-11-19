@@ -4,21 +4,24 @@ A real Android Input Method Editor written in Kotlin. Goals: **unlimited customi
 
 > Status: **Phase 1 of 7** (native IME foundation). See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) and [docs/COMPATIBILITY.md](docs/COMPATIBILITY.md).
 
-## What works in Phase 1
+## What works now (Phase 1, Gboard-style UI)
 
-- Real `InputMethodService` that works in any normal text field (min API 26, target API 35).
+- Real `InputMethodService` that works in normal text fields (min API 26, target API 35).
+- **Gboard-like interface:** suggestion strip on top, rounded keys, light/dark colours following the system, accent-coloured Enter, key-preview bubble on press.
+- **Long-press alternates** (à é ñ ß … , ¹ ½ , ৳ → $ € £ ¥ ₹ , Bengali digit → 1 2 3 …) with slide-to-select.
+- **Slide on the space bar** to move the cursor.
+- **Word suggestions** (English): shows what you typed + up to 2 completions; tap to insert. Learns your own words locally (stored in app-private storage, never sent anywhere, not learned in password/email/URL fields). Built-in list is a small starter list only, not a full dictionary yet.
 - Three layouts, switched with the 🌐 key:
   - **English** QWERTY with number row, shift / caps-lock (double tap), auto-capitalisation, double-space → ". ".
   - **Bengali (Bijoy-style, traditional)** with Bengali digits, kar/vowel signs, `্র`, `র্`, plus an extras page (অআ key) for independent vowels and signs.
-  - **Bengali (phonetic, Avro-style)**: type `bangla` → বাংলা, `ami` → আমি, `boi` → বই. Live composing text, backspace edits the Latin buffer.
-- Symbols page (?123), Enter honours the field's IME action (Search / Go / Send …), backspace key-repeat, multi-touch, haptics.
-- Password fields automatically use the English layout; number/phone fields open on the symbols page.
-- Light/dark colours follow the system. Portrait and landscape, any screen size (layout is computed from width; height is capped at 50% of the screen).
+  - **Bengali (phonetic, Avro-style)**: `bangla` → বাংলা, `ami` → আমি, `boi` → বই, with live composing text.
+- Symbols page (?123), Enter honours the field's IME action, backspace key-repeat, multi-touch, haptics.
+- Password fields use the English layout without suggestions; number/phone fields open on the symbols page.
 - Privacy: no `INTERNET` permission, no analytics, no data backup.
 
 ## Not done yet (planned phases)
 
-Theme editor, custom fonts, animations, performance profiles, dictionaries / suggestions / autocorrect, swipe typing, emoji, clipboard, voice typing, Compose settings app, backup. **None of these are claimed to work yet.**
+Theme editor, custom fonts, animations, performance profiles, full dictionaries / autocorrect / Bengali suggestions / next-word prediction, swipe typing, emoji, clipboard, voice typing, Compose settings app, backup. **None of these are claimed to work yet.**
 
 ## Build
 
